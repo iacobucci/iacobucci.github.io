@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Chat P2P WebRTC senza signaling</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: auto; }
+    textarea, input { width: 100%; margin: 5px 0; }
+    #chat { height: 200px; overflow-y: auto; background: #f0f0f0; padding: 5px; }
+    .me { color: blue; }
+    .other { color: green; }
+  </style>
+</head>
+<body>
+
+<h2>Chat P2P WebRTC senza signaling</h2>
+
+<div id="step1">
+  <button id="create-offer">🔗 Crea offerta</button>
+  <p>Invia questo link al peer:</p>
+  <textarea id="offer-link" readonly rows="3"></textarea>
+</div>
+
+<div id="step2">
+  <p>Se hai ricevuto un link con <code>#offer=...</code>, apri questa pagina con quel link.<br>
+  La risposta sarà generata automaticamente e apparirà qui:</p>
+  <textarea id="generated-answer" readonly rows="3" placeholder="Aspetta generazione..."></textarea>
+  <p>Incolla questa risposta nel browser dell'altro peer.</p>
+</div>
+
+<div id="accept-area">
+  <p>Se hai ricevuto la risposta dal peer, incollala qui:</p>
+  <textarea id="remote-answer" placeholder="Incolla qui la risposta..." rows="3"></textarea>
+  <button id="accept-answer">✅ Accetta risposta</button>
+</div>
+
+<hr>
+
+<div id="chat-container" style="display:none;">
+  <div id="chat"></div>
+  <input id="msg" placeholder="Scrivi un messaggio...">
+  <button id="send">📤 Invia</button>
+</div>
+
+<script>
+const log = (msg, cls = "") => {
+  const chat = document.getElementById("chat");
+  const p = document.createElement("div");
+  p.className = cls;
+  p.textContent = msg;
+  chat.appendChild(p);
+  chat.scrollTop = chat.scrollHeight;
+};
+
+const pc = new RTCPeerConnection();
+let channel;
+
+function setupChannel() {
+  channel.onopen = () => {
+    document.getElementById("chat-container").style.display = "block";
+    log("🔗 Canale aperto!", "me");
+  };
+
+  channel.onmessage = e => log("👤 " + e.data, "other");
+
+  document.getElementById("send").onclick = () => {
+    const msg = document.getElementById("msg").value;
+    if (!msg) return;
+    channel.send(msg);
+    log("🙋 " + msg, "me");
+    document.getElementById("msg").value = "";
+  };
+}
+
+document.getElementById("create-offer").onclick = async () => {
+  channel = pc.createDataChannel("chat");
+  setupChannel();
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  pc.onicecandidate = e => {
+    if (e.candidate === null && pc.localDescription) {
+      const sdp = btoa(JSON.stringify(pc.localDescription));
+      const offerLink = location.origin + location.pathname + "#offer=" + sdp;
+      document.getElementById("offer-link").value = offerLink;
+    }
+  };
+};
+
+document.getElementById("accept-answer").onclick = async () => {
+  const answerStr = document.getElementById("remote-answer").value;
+  if (!answerStr) return alert("Incolla prima la risposta!");
+
+  const answer = JSON.parse(atob(answerStr));
+  await pc.setRemoteDescription(answer);
+  log("✅ Risposta accettata.", "me");
+};
+
+// Se riceviamo un’offerta via URL
+if (location.hash.startsWith("#offer=")) {
+  (async () => {
+    const offer = JSON.parse(atob(location.hash.slice(7)));
+    await pc.setRemoteDescription(offer);
+
+    pc.ondatachannel = event => {
+      channel = event.channel;
+      setupChannel();
+    };
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    pc.onicecandidate = e => {
+      if (e.candidate === null && pc.localDescription) {
+        const answerStr = btoa(JSON.stringify(pc.localDescription));
+        document.getElementById("generated-answer").value = answerStr;
+      }
+    };
+  })();
+}
+</script>
+
+</body>
+</html>
